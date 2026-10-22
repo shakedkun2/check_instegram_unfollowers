@@ -34,7 +34,7 @@ export function extractUsers(jsonData) {
         if (first.timestamp) timestamp = first.timestamp;
       }
 
-      // Format 2: title property has username
+      // Format 2: title property has username (common in following.json)
       if (!username && item.title) {
         username = item.title.trim().toLowerCase();
       }
@@ -55,6 +55,30 @@ export function extractUsers(jsonData) {
 }
 
 /**
+ * Determines whether a file represents 'following' or 'followers' based on
+ * its filename (basename only, avoiding parent folder names) or JSON structure.
+ */
+function identifyFileType(parsedJson, filename) {
+  // 1. Check JSON structure signature
+  if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson)) {
+    if ('relationships_following' in parsedJson) return 'following';
+    if ('relationships_followers' in parsedJson) return 'followers';
+  }
+
+  // 2. Check filename basename (ignore folder paths like "followers_and_following/")
+  const basename = filename.split('/').pop().split('\\').pop().toLowerCase();
+
+  if (basename.startsWith('following') && basename.endsWith('.json')) {
+    return 'following';
+  }
+  if (basename.startsWith('follower') && basename.endsWith('.json')) {
+    return 'followers';
+  }
+
+  return 'unknown';
+}
+
+/**
  * Reads and processes files from an uploaded Instagram .zip archive
  */
 export async function parseZipArchive(file) {
@@ -66,46 +90,39 @@ export async function parseZipArchive(file) {
 
   const entries = Object.keys(loadedZip.files);
 
-  let foundFollowing = false;
-  let foundFollowers = false;
-
   for (const filename of entries) {
-    const lower = filename.toLowerCase();
+    if (!filename.toLowerCase().endsWith('.json')) continue;
 
-    // Look for following.json
-    if (lower.includes('following') && lower.endsWith('.json')) {
+    const basename = filename.split('/').pop().toLowerCase();
+    
+    // Only inspect files whose names start with 'following' or 'follower'
+    if (!basename.startsWith('following') && !basename.startsWith('follower')) {
+      continue;
+    }
+
+    try {
       const content = await loadedZip.files[filename].async('text');
-      try {
-        const parsed = JSON.parse(content);
-        const extracted = extractUsers(parsed);
+      const parsed = JSON.parse(content);
+      const fileType = identifyFileType(parsed, filename);
+      const extracted = extractUsers(parsed);
+
+      if (fileType === 'following') {
         for (const [u, data] of extracted) {
           followingUsers.set(u, data);
         }
-        foundFollowing = true;
-      } catch (err) {
-        console.warn(`Failed parsing ${filename}:`, err);
-      }
-    }
-
-    // Look for followers*.json (e.g. followers_1.json, followers.json)
-    if (lower.includes('follower') && lower.endsWith('.json')) {
-      const content = await loadedZip.files[filename].async('text');
-      try {
-        const parsed = JSON.parse(content);
-        const extracted = extractUsers(parsed);
+      } else if (fileType === 'followers') {
         for (const [u, data] of extracted) {
           followerUsers.set(u, data);
         }
-        foundFollowers = true;
-      } catch (err) {
-        console.warn(`Failed parsing ${filename}:`, err);
       }
+    } catch (err) {
+      console.warn(`Failed parsing ${filename}:`, err);
     }
   }
 
-  if (!foundFollowing && !foundFollowers) {
+  if (followingUsers.size === 0 && followerUsers.size === 0) {
     throw new Error(
-      "Could not find 'following.json' or 'followers_1.json' inside the zip. Please ensure you selected 'Followers and following' when requesting the export in JSON format."
+      "Could not find 'following.json' or 'followers_1.json' inside the zip. Please ensure you selected 'Followers and following' in JSON format."
     );
   }
 
@@ -120,16 +137,16 @@ export async function parseJsonFiles(fileList) {
   const followerUsers = new Map();
 
   for (const file of fileList) {
-    const lower = file.name.toLowerCase();
     const text = await file.text();
     const parsed = JSON.parse(text);
+    const fileType = identifyFileType(parsed, file.name);
     const extracted = extractUsers(parsed);
 
-    if (lower.includes('following')) {
+    if (fileType === 'following') {
       for (const [u, data] of extracted) {
         followingUsers.set(u, data);
       }
-    } else if (lower.includes('follower')) {
+    } else if (fileType === 'followers') {
       for (const [u, data] of extracted) {
         followerUsers.set(u, data);
       }
@@ -138,7 +155,7 @@ export async function parseJsonFiles(fileList) {
 
   if (followingUsers.size === 0 && followerUsers.size === 0) {
     throw new Error(
-      "Uploaded JSON files must have 'following' or 'followers' in their file names (e.g. following.json and followers_1.json)."
+      "Uploaded JSON files must be named following.json and followers_1.json."
     );
   }
 

@@ -23,9 +23,9 @@ def extract_usernames(data):
                 string_list = entry.get("string_list_data", [])
                 if string_list and isinstance(string_list, list):
                     for item in string_list:
-                        if isinstance(item, dict) and "value" in item:
+                        if isinstance(item, dict) and "value" in item and item["value"]:
                             usernames.add(item["value"].strip().lower())
-                elif "title" in entry and entry["title"]:
+                if "title" in entry and entry["title"]:
                     usernames.add(entry["title"].strip().lower())
             elif isinstance(entry, str):
                 usernames.add(entry.strip().lower())
@@ -42,13 +42,13 @@ def main():
     data_dir = Path("data")
 
     # Find following file
-    following_files = list(data_dir.glob("*following*.json"))
+    following_files = [f for f in data_dir.glob("**/*.json") if f.name.startswith("following")]
     if not following_files:
         print("❌ Error: Could not find following.json in data/ folder.", file=sys.stderr)
         sys.exit(1)
 
     # Find follower files
-    follower_files = list(data_dir.glob("*follower*.json"))
+    follower_files = [f for f in data_dir.glob("**/*.json") if f.name.startswith("follower")]
     if not follower_files:
         print("❌ Error: Could not find followers.json or followers_1.json in data/ folder.", file=sys.stderr)
         sys.exit(1)
